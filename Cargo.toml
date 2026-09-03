@@ -1,0 +1,9 @@
+[package]
+name = "tz-offset-fmt"
+version = "0.1.0"
+edition = "2021"
+authors = ["anthony-b58"]
+license = "MIT"
+description = "Normalizes messy UTC offset and timezone abbreviation strings into canonical +HH:MM form"
+
+[dependencies]

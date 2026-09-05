@@ -239,4 +239,31 @@ mod tests {
             }
         }
     }
+
+    // A colon splits the input into two digit runs, and either side can be
+    // missing or non-numeric. These used to only be covered incidentally;
+    // spell them out so a future change to the split_once path can't
+    // silently start accepting garbage.
+    const MALFORMED_COLON_CASES: &[(&str, OffsetError)] = &[
+        ("+5:", OffsetError::UnrecognizedFormat), // nothing after the colon
+        ("+:30", OffsetError::UnrecognizedFormat), // nothing before the colon
+        ("+:", OffsetError::UnrecognizedFormat), // both sides empty
+        ("+05:30:00", OffsetError::UnrecognizedFormat), // second colon lands in the minute run
+        ("+05:3a", OffsetError::UnrecognizedFormat), // non-digit minute
+        ("+0a:30", OffsetError::UnrecognizedFormat), // non-digit hour
+        ("-5:", OffsetError::UnrecognizedFormat), // same shape, negative sign
+    ];
+
+    #[test]
+    fn rejects_malformed_colon_input() {
+        for (input, expected_err) in MALFORMED_COLON_CASES {
+            match normalize(input) {
+                Ok(offset) => panic!(
+                    "input {:?} should have failed, got {}",
+                    input, offset
+                ),
+                Err(e) => assert_eq!(e, *expected_err, "input {:?} gave wrong error", input),
+            }
+        }
+    }
 }

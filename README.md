@@ -46,6 +46,38 @@ Z -> +00:00
 PST -> -08:00
 ```
 
+`normalize` expects the whole input to be an offset. To pull an offset out
+of a full timestamp, use `extract_offset` instead, which looks at the tail
+of the string:
+
+```rust
+use tz_offset_fmt::extract_offset;
+
+fn main() {
+    for input in [
+        "2024-01-15T10:30:00+05:30",
+        "2024-01-15T10:30:00Z",
+        "Jan 15 2024 10:30:00 GMT-0800",
+    ] {
+        match extract_offset(input) {
+            Ok(offset) => println!("{input} -> {offset}"),
+            Err(err) => println!("{input} -> error: {err}"),
+        }
+    }
+}
+```
+
+Output:
+
+```
+2024-01-15T10:30:00+05:30 -> +05:30
+2024-01-15T10:30:00Z -> +00:00
+Jan 15 2024 10:30:00 GMT-0800 -> -08:00
+```
+
+It does not parse or validate the date/time part at all, it only finds the
+offset attached to the end.
+
 ## CLI usage
 
 ```

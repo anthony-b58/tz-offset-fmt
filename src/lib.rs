@@ -131,6 +131,45 @@ pub fn normalize(input: &str) -> Result<Offset, OffsetError> {
     parse_numeric(&upper)
 }
 
+/// Pulls a UTC offset out of a full datetime string and normalizes it,
+/// ignoring the date/time portion. This crate does not parse dates, so it
+/// only looks at the tail of the string: a `Z`/`z` marker, a named zone
+/// token separated by whitespace ("... GMT-0800", "... PST"), or a signed
+/// numeric offset glued directly onto a time ("...T10:30:00+05:30").
+///
+/// If the whole input is already a bare offset, this behaves like
+/// [`normalize`].
+pub fn extract_offset(input: &str) -> Result<Offset, OffsetError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(OffsetError::Empty);
+    }
+
+    if let Ok(offset) = normalize(trimmed) {
+        return Ok(offset);
+    }
+
+    if let Some(rest) = trimmed.strip_suffix(|c: char| c == 'Z' || c == 'z') {
+        if rest.ends_with(|c: char| c.is_ascii_digit()) {
+            return Offset::from_minutes(0);
+        }
+    }
+
+    if let Some(idx) = trimmed.rfind(char::is_whitespace) {
+        if let Ok(offset) = normalize(&trimmed[idx + 1..]) {
+            return Ok(offset);
+        }
+    }
+
+    if let Some(idx) = trimmed.rfind(['+', '-']) {
+        if let Ok(offset) = parse_numeric(&trimmed[idx..].to_ascii_uppercase()) {
+            return Ok(offset);
+        }
+    }
+
+    Err(OffsetError::UnrecognizedFormat)
+}
+
 fn parse_numeric(s: &str) -> Result<Offset, OffsetError> {
     let mut chars = s.chars();
     let sign: i16 = match chars.next() {
@@ -258,6 +297,55 @@ mod tests {
     fn rejects_malformed_colon_input() {
         for (input, expected_err) in MALFORMED_COLON_CASES {
             match normalize(input) {
+                Ok(offset) => panic!(
+                    "input {:?} should have failed, got {}",
+                    input, offset
+                ),
+                Err(e) => assert_eq!(e, *expected_err, "input {:?} gave wrong error", input),
+            }
+        }
+    }
+
+    const EXTRACT_OK_CASES: &[(&str, &str)] = &[
+        ("2024-01-15T10:30:00+05:30", "+05:30"),
+        ("2024-01-15T10:30:00-08:00", "-08:00"),
+        ("2024-01-15T10:30:00Z", "+00:00"),
+        ("2024-01-15T10:30:00z", "+00:00"),
+        ("2024-01-15T10:30:00-0800", "-08:00"),
+        ("Jan 15 2024 10:30:00 GMT-0800", "-08:00"),
+        ("Jan 15 2024 10:30:00 UTC", "+00:00"),
+        ("2024-01-15 10:30:00 PST", "-08:00"),
+        ("+05:30", "+05:30"), // bare offset, no datetime around it
+        ("UTC+8", "+08:00"),
+    ];
+
+    const EXTRACT_ERR_CASES: &[(&str, OffsetError)] = &[
+        ("", OffsetError::Empty),
+        ("   ", OffsetError::Empty),
+        ("2024-01-15T10:30:00", OffsetError::UnrecognizedFormat), // no offset at all
+        ("2024-01-15 10:30:00", OffsetError::UnrecognizedFormat),
+        ("just some text", OffsetError::UnrecognizedFormat),
+    ];
+
+    #[test]
+    fn extracts_offset_from_datetime_strings() {
+        for (input, expected) in EXTRACT_OK_CASES {
+            match extract_offset(input) {
+                Ok(offset) => assert_eq!(
+                    offset.to_string(),
+                    *expected,
+                    "input {:?} extracted wrong",
+                    input
+                ),
+                Err(e) => panic!("input {:?} should have parsed, got error: {}", input, e),
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_datetime_strings_without_an_offset() {
+        for (input, expected_err) in EXTRACT_ERR_CASES {
+            match extract_offset(input) {
                 Ok(offset) => panic!(
                     "input {:?} should have failed, got {}",
                     input, offset

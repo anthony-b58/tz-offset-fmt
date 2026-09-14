@@ -88,6 +88,18 @@ Z -> +00:00
 bogus -> error: not a recognized offset or timezone abbreviation
 ```
 
+With no arguments, it reads one offset per line from stdin, which is more
+convenient for batch normalization of a file or a pipe:
+
+```
+$ cut -f3 access.log | tz-offset-fmt
+UTC+5:30 -> +05:30
+-0800 -> -08:00
+```
+
+Blank lines are skipped. Errors go to stderr per line, same as the
+argument form, so one bad line doesn't stop the rest of the batch.
+
 ## Status
 
 Early. The parser and its test table live in `src/lib.rs`. No dependencies,

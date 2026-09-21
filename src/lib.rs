@@ -78,9 +78,11 @@ impl std::error::Error for OffsetError {}
 /// list rather than the full IANA database: those need a rules engine for
 /// DST transitions by date, which is out of scope for a string formatter.
 ///
-/// CST is ambiguous (US Central: -6:00, China Standard: +8:00). We pick
-/// the US reading since the rest of this table is US/European military
-/// zone letters, not IANA zone names.
+/// Several of these letters are ambiguous. CST (US Central -6:00 vs.
+/// China Standard +8:00), AST (Atlantic -4:00 vs. Arabia +3:00), and BST
+/// (British Summer Time +1:00 vs. Bangladesh +6:00) all collide. We pick
+/// the US/European reading in each case since that's the reading the rest
+/// of this table already leans toward.
 const NAMED_ZONES: &[(&str, i16)] = &[
     ("UTC", 0),
     ("GMT", 0),
@@ -97,6 +99,27 @@ const NAMED_ZONES: &[(&str, i16)] = &[
     ("JST", 9 * 60),
     ("CET", 1 * 60),
     ("CEST", 2 * 60),
+    ("WET", 0),
+    ("WEST", 1 * 60),
+    ("EET", 2 * 60),
+    ("EEST", 3 * 60),
+    ("MSK", 3 * 60),
+    ("BST", 1 * 60),
+    ("AST", -4 * 60),
+    ("ADT", -3 * 60),
+    ("HST", -10 * 60),
+    ("AKST", -9 * 60),
+    ("AKDT", -8 * 60),
+    ("SGT", 8 * 60),
+    ("HKT", 8 * 60),
+    ("KST", 9 * 60),
+    ("AEST", 10 * 60),
+    ("AEDT", 11 * 60),
+    ("ACST", 9 * 60 + 30),
+    ("ACDT", 10 * 60 + 30),
+    ("AWST", 8 * 60),
+    ("NZST", 12 * 60),
+    ("NZDT", 13 * 60),
 ];
 
 /// Normalizes messy offset/timezone text into a canonical [`Offset`].
@@ -236,6 +259,28 @@ mod tests {
         ("PDT", "-07:00"),
         ("IST", "+05:30"),
         ("CEST", "+02:00"),
+        ("WET", "+00:00"),
+        ("WEST", "+01:00"),
+        ("EET", "+02:00"),
+        ("EEST", "+03:00"),
+        ("MSK", "+03:00"),
+        ("BST", "+01:00"), // British Summer Time, not Bangladesh
+        ("AST", "-04:00"), // Atlantic Standard Time, not Arabia
+        ("ADT", "-03:00"),
+        ("HST", "-10:00"),
+        ("AKST", "-09:00"),
+        ("AKDT", "-08:00"),
+        ("SGT", "+08:00"),
+        ("HKT", "+08:00"),
+        ("KST", "+09:00"),
+        ("AEST", "+10:00"),
+        ("AEDT", "+11:00"),
+        ("ACST", "+09:30"),
+        ("ACDT", "+10:30"),
+        ("AWST", "+08:00"),
+        ("NZST", "+12:00"),
+        ("NZDT", "+13:00"),
+        ("nzdt", "+13:00"), // case-insensitivity on a newer entry
     ];
 
     // (input, expected error) for inputs that should be rejected.

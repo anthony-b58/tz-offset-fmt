@@ -14,7 +14,9 @@ specific date," you need a real tz database, not this.
 ## What it accepts
 
 - Named zones (case-insensitive): `UTC`, `GMT`, `Z`, `EST`, `EDT`, `CST`,
-  `CDT`, `MST`, `MDT`, `PST`, `PDT`, `IST`, `JST`, `CET`, `CEST`
+  `CDT`, `MST`, `MDT`, `PST`, `PDT`, `IST`, `JST`, `CET`, `CEST`, `WET`,
+  `WEST`, `EET`, `EEST`, `MSK`, `BST`, `AST`, `ADT`, `HST`, `AKST`, `AKDT`,
+  `SGT`, `HKT`, `KST`, `AEST`, `AEDT`, `ACST`, `ACDT`, `AWST`, `NZST`, `NZDT`
 - Named zone plus a signed offset: `UTC+8`, `GMT-05:30`
 - Signed numeric offsets in several widths: `+5`, `+05`, `+530`, `+0530`,
   `+05:30`

@@ -399,4 +399,167 @@ mod tests {
             }
         }
     }
+
+    /// Tiny deterministic xorshift64 PRNG so the fuzz-style tests below
+    /// don't need an external crate, and still reproduce the exact same
+    /// sequence every run so a failure is reproducible.
+    struct Rng(u64);
+
+    impl Rng {
+        fn new(seed: u64) -> Self {
+            Rng(seed)
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+
+        /// Random integer in `0..bound`.
+        fn below(&mut self, bound: u64) -> u64 {
+            self.next_u64() % bound
+        }
+
+        fn digit_string(&mut self, len: u64) -> String {
+            (0..len)
+                .map(|_| (b'0' + self.below(10) as u8) as char)
+                .collect()
+        }
+    }
+
+    // parse_numeric's colon branch splits on the first ':' and runs each
+    // side through parse_digits independently of width, so the reference
+    // check here only needs the documented rules (minutes < 60, hours <=
+    // 14, then overall range) rather than reimplementing the parser.
+    #[test]
+    fn fuzzes_colon_numeric_form_against_reference_rules() {
+        let mut rng = Rng::new(0x5EED_1234_ABCD_EF01);
+
+        for _ in 0..5000 {
+            let sign_is_negative = rng.below(2) == 0;
+            let sign_char = if sign_is_negative { '-' } else { '+' };
+
+            // 0 covers "nothing on this side of the colon"; 1..=3 cover
+            // ordinary and oversized digit runs.
+            let h_digits = rng.digit_string(rng.below(4));
+            let m_digits = rng.digit_string(rng.below(4));
+
+            let text = format!("{sign_char}{h_digits}:{m_digits}");
+            let result = parse_numeric(&text);
+
+            if h_digits.is_empty() || m_digits.is_empty() {
+                assert_eq!(
+                    result,
+                    Err(OffsetError::UnrecognizedFormat),
+                    "expected empty side of colon to fail for {:?}",
+                    text
+                );
+                continue;
+            }
+
+            let hours: i32 = h_digits.parse().unwrap();
+            let minutes: i32 = m_digits.parse().unwrap();
+
+            if minutes >= 60 {
+                assert_eq!(result, Err(OffsetError::InvalidMinutes), "input {:?}", text);
+            } else if hours > 14 {
+                assert_eq!(result, Err(OffsetError::InvalidHours), "input {:?}", text);
+            } else {
+                let sign: i32 = if sign_is_negative { -1 } else { 1 };
+                let total = sign * (hours * 60 + minutes);
+                if !(MIN_TOTAL_MINUTES as i32..=MAX_TOTAL_MINUTES as i32).contains(&total) {
+                    assert_eq!(result, Err(OffsetError::OutOfRange), "input {:?}", text);
+                } else {
+                    let offset = result.unwrap_or_else(|e| {
+                        panic!("input {:?} should have parsed, got error: {}", text, e)
+                    });
+                    assert_eq!(offset.total_minutes() as i32, total, "input {:?}", text);
+                }
+            }
+        }
+    }
+
+    // The no-colon branch picks its hour/minute split from the digit run's
+    // length alone (1|2 -> hours only, 3 -> 1+2, 4 -> 2+2, anything else is
+    // rejected), so the reference mirrors that shape rule directly.
+    #[test]
+    fn fuzzes_bare_numeric_widths_against_reference_shape_rules() {
+        let mut rng = Rng::new(0xFEED_BEEF_0102_0304);
+
+        for _ in 0..5000 {
+            let sign_is_negative = rng.below(2) == 0;
+            let sign_char = if sign_is_negative { '-' } else { '+' };
+            let digits = rng.digit_string(rng.below(6)); // 0..=5; only 1..=4 are ever valid
+            let text = format!("{sign_char}{digits}");
+
+            let result = parse_numeric(&text);
+
+            let (hours, minutes): (i32, i32) = match digits.len() {
+                1 | 2 => (digits.parse().unwrap(), 0),
+                3 => (digits[..1].parse().unwrap(), digits[1..].parse().unwrap()),
+                4 => (digits[..2].parse().unwrap(), digits[2..].parse().unwrap()),
+                _ => {
+                    assert_eq!(
+                        result,
+                        Err(OffsetError::UnrecognizedFormat),
+                        "input {:?} has an unsupported digit width",
+                        text
+                    );
+                    continue;
+                }
+            };
+
+            if minutes >= 60 {
+                assert_eq!(result, Err(OffsetError::InvalidMinutes), "input {:?}", text);
+            } else if hours > 14 {
+                assert_eq!(result, Err(OffsetError::InvalidHours), "input {:?}", text);
+            } else {
+                let sign: i32 = if sign_is_negative { -1 } else { 1 };
+                let total = sign * (hours * 60 + minutes);
+                if !(MIN_TOTAL_MINUTES as i32..=MAX_TOTAL_MINUTES as i32).contains(&total) {
+                    assert_eq!(result, Err(OffsetError::OutOfRange), "input {:?}", text);
+                } else {
+                    let offset = result.unwrap_or_else(|e| {
+                        panic!("input {:?} should have parsed, got error: {}", text, e)
+                    });
+                    assert_eq!(offset.total_minutes() as i32, total, "input {:?}", text);
+                }
+            }
+        }
+    }
+
+    // Pure garbage assembled from a biased alphabet (digits, sign, colon,
+    // and the letters that spell UTC/GMT/PST-style tokens). The only
+    // property worth asserting on nonsense is that it never panics; when it
+    // happens to parse, its own canonical form must reparse to itself.
+    #[test]
+    fn fuzz_normalize_never_panics_on_arbitrary_input() {
+        let mut rng = Rng::new(0xABCD_EF01_2345_6789);
+        let alphabet: &[char] = &[
+            '+', '-', ':', '.', ' ', '0', '1', '5', '9', 'u', 'U', 't', 'T', 'c', 'C', 'z', 'Z',
+            'p', 'P', 's', 'S',
+        ];
+
+        for _ in 0..5000 {
+            let len = rng.below(12);
+            let text: String = (0..len)
+                .map(|_| alphabet[rng.below(alphabet.len() as u64) as usize])
+                .collect();
+
+            if let Ok(offset) = normalize(&text) {
+                let formatted = offset.to_string();
+                assert_eq!(
+                    normalize(&formatted),
+                    Ok(offset),
+                    "canonical form of {:?} ({}) didn't reparse to itself",
+                    text,
+                    formatted
+                );
+            }
+        }
+    }
 }
